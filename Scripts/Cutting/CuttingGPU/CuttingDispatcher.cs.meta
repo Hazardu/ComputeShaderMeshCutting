@@ -1,0 +1,17 @@
+fileFormatVersion: 2
+guid: daa9c4fe8446c404a8660193f232034e
+MonoImporter:
+  externalObjects: {}
+  serializedVersion: 2
+  defaultReferences:
+  - shader: {fileID: 7200000, guid: f5bc993092fd3ef4585295866c989913, type: 3}
+  - instantiatedMesh: {fileID: 4056562208666283464, guid: 689222dc1537ebb4d95e8a7330e9e2e7,
+      type: 3}
+  - toCut: {instanceID: 0}
+  - plane: {instanceID: 0}
+  - referencePlane: {instanceID: 0}
+  executionOrder: 0
+  icon: {instanceID: 0}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 

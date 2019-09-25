@@ -1,0 +1,607 @@
+﻿#pragma kernel CSsplitMesh
+#pragma kernel CSsplitVerticies
+#pragma kernel CScreateExtraVertecies
+
+static const float Epsilon = 1.401298E-45;
+static const float MinusEpsilon = -1.401298E-45;
+
+uint loopSize;
+uint maxLoopIndex;
+
+uint vertLoopSize;
+uint maxVertLoopSize;
+
+uint CrossSectionLoopSize;
+uint CrossSectionLoopMaxSize;
+
+uint triangleVertOffset;
+//plane to cut along
+float3 planeNormal;
+float planeDistance;
+
+//input buffer
+RWStructuredBuffer<float3> inputVert;
+RWStructuredBuffer<int> inputTri;
+
+//result buffer
+RWStructuredBuffer<uint> outputSides;
+
+RWStructuredBuffer<uint> outputVerticies;
+
+
+struct SplitTriangleData
+{
+	uint triStart;
+	uint action;
+	uint triPosA;
+	uint triPosB;
+	uint vertPos;
+};
+RWStructuredBuffer<SplitTriangleData> inputSplitTriangles;
+RWStructuredBuffer<float3> inputNormals;
+
+
+RWStructuredBuffer<float3> outputSplitVerts;
+RWStructuredBuffer<float3> outputNewNormals;
+RWStructuredBuffer<uint> outputTrisA;
+RWStructuredBuffer<uint> outputTrisB;
+
+
+
+int sideOf(float3 pt)
+{
+	float result = dot(planeNormal, pt) - planeDistance;
+	if (result > Epsilon) {
+		return 0;
+	}
+
+	if (result < MinusEpsilon) {
+		return 1;
+	}
+
+	return 2;
+}
+float3 Intersect(float3 a, float3 b) {
+	float3 ab = b - a;
+
+	float t = (planeDistance - dot(planeNormal, a)) / dot(planeNormal, ab);
+	// need to be careful and compensate for floating errors
+	if (t >= MinusEpsilon && t <= (1 + Epsilon)) {
+		return a + t * ab;
+	}
+
+	return float3(0, 0, 0);
+}
+float3 Normal(float3 a, float3 b)
+{
+	//return float3(0, 0, -1);
+	return normalize(cross(a, b));
+}
+int triSide(float3 a, float3 b, float3 c)
+{
+	int sa = sideOf(a);
+	int sb = sideOf(b);
+	int sc = sideOf(c);
+
+
+	if (sa == sb && sb == sc) {
+
+		return sa;
+	}
+
+	// detect cases where two points lay straight on the plane, meaning
+	// that the plane is actually parralel with one of the edges of the triangle
+// and the other is on left side
+	else if (sa == 2 && sa == sb && sc == 0)
+	{
+
+		return 3;
+	}
+	else if (sa == 2 && sa == sc && sb == 0)
+	{
+
+		return 4;
+	}
+	else if (sb == 2 && sb == sc && sa == 0)
+	{
+
+		return 5;
+	}
+	// detect if one tri is on the plane, others are on the same side, left
+	else if (sa == 2 && sc == sb && sc == 0)
+	{
+
+		return 6;
+	}
+	else if (sb == 2 && sa == sc && sa == 0)
+	{
+
+		return 7;
+	}
+	else if (sc == 2 && sb == sa && sa == 0)
+	{
+
+		return 8;
+	}
+	//one on, others intersecting
+	else if (sa == 2 && sc != sb && sc == 0)
+	{
+
+
+		return 9;
+	}
+	else if (sb == 2 && sa != sc && sa == 0)
+	{
+
+
+		return 10;
+	}
+	else if (sc == 2 && sb != sa && sb == 0)
+	{
+
+
+		return 11;
+	}
+	//two on left, one on right side
+	else if (sa == 0 && sb == 0 && sc == 1)
+	{
+
+
+		return 12;
+	}
+	else if (sa == 0 && sc == 0 && sb == 1)
+	{
+
+
+		return 13;
+	}
+	else if (sb == 0 && sc == 0 && sa == 1)
+	{
+
+
+		return 14;
+	}
+	//one on left, two on right side
+	else if (sa == 1 && sb == 1 && sc == 0)
+	{
+
+
+		return 15;
+	}
+	else if (sa == 1 && sc == 1 && sb == 0)
+	{
+
+
+		return 16;
+	}
+	else if (sb == 1 && sc == 1 && sa == 0)
+	{
+
+
+		return 17;
+	}
+	// detect if one tri is on the plane, others are on the same side, right
+	else if (sa == 2 && sc == sb && sc == 1)
+	{
+
+
+		return 18;
+	}
+	else if (sb == 2 && sa == sc && sa == 1)
+	{
+
+		return 19;
+	}
+	else if (sc == 2 && sb == sa && sa == 1)
+	{
+
+		return 20;
+	}
+
+
+	// detect cases where two points lay straight on the plane, meaning
+	// that the plane is actually parralel with one of the edges of the triangle
+// and the other is on right side
+	else if (sa == 2 && sa == sb && sc == 1)
+	{
+
+		return 21;
+	}
+	else if (sa == 2 && sa == sc && sb == 1)
+	{
+
+		return 22;
+	}
+	else if (sb == 2 && sb == sc && sa == 1)
+	{
+
+		return 23;
+	}
+	//one on, others intersecting
+	else if (sa == 2 && sc != sb && sc == 1)
+	{
+
+
+		return 24;
+	}
+	else if (sb == 2 && sa != sc && sa == 1)
+	{
+
+
+		return 25;
+	}
+	else if (sc == 2 && sb != sa && sb == 1)
+	{
+
+
+		return 26;
+	}
+	return 1000;
+}
+
+[numthreads(1024, 1, 1)]
+void CSsplitMesh(uint id : SV_GroupIndex)
+{
+	if (id > maxLoopIndex) return;
+
+
+	for (uint i = 0; i < loopSize; i++)
+	{
+
+		uint index = id + i * 1024;
+		if (index > maxLoopIndex) break;
+
+		int a = inputTri[index * 3];
+		int b = inputTri[index * 3 + 1];
+		int c = inputTri[index * 3 + 2];
+
+		float3 posA = inputVert[a];
+		float3 posB = inputVert[b];
+		float3 posC = inputVert[c];
+
+		outputSides[index] = triSide(posA, posB, posC);
+
+	}
+
+}
+
+
+[numthreads(1024, 1, 1)]
+void CSsplitVerticies(uint id : SV_GroupIndex)
+{
+	if (id <= maxVertLoopSize) {
+
+		//calc norm. vertecies
+		for (uint i = 0; i < vertLoopSize; i++)
+		{
+			uint index = id + i * 1024;
+			if (index > maxVertLoopSize) break;
+
+			float3 vert = inputVert[index];
+			outputVerticies[index] = sideOf(vert);
+		}
+
+	}
+}
+
+
+[numthreads(1024, 1, 1)]
+void CScreateExtraVertecies(uint id : SV_GroupIndex)
+{
+	if (id <= CrossSectionLoopMaxSize)
+	{
+
+		//calc norm. vertecies
+		for (uint i = 0; i < CrossSectionLoopSize; i++)
+		{
+			uint index = id + i * 1024;
+			if (index > CrossSectionLoopMaxSize) break;
+
+			uint triangleID = inputSplitTriangles[index].triStart;
+			uint action = inputSplitTriangles[index].action;
+			uint posA = inputSplitTriangles[index].triPosA;
+			uint posB = inputSplitTriangles[index].triPosB;
+			uint vertPos = inputSplitTriangles[index].vertPos;
+
+			float3 a = inputVert[inputTri[triangleID]];
+			float3 b = inputVert[inputTri[triangleID + 1]];
+			float3 c = inputVert[inputTri[triangleID + 2]];
+
+			uint ia = inputTri[triangleID];
+			uint ib = inputTri[triangleID + 1];
+			uint ic = inputTri[triangleID + 2];
+
+			float3 na = inputNormals[triangleID];
+			float3 nb = inputNormals[triangleID + 1];
+			float3 nc = inputNormals[triangleID + 2];
+			if (action == 9)
+			{
+				float3 intersection = Intersect(b, c);
+
+				outputSplitVerts[vertPos] = intersection;
+				outputNewNormals[vertPos] = Normal(nb, nc);
+				//assign triangle belonging to left side
+				//c, a, intersection
+				//b, a, intersection
+
+				outputTrisA[posA] = ia;
+				outputTrisA[posA + 1] = ic;
+				outputTrisA[posA + 2] = vertPos + triangleVertOffset;
+
+				outputTrisB[posB] = ia;
+				outputTrisB[posB + 1] = ib;
+				outputTrisB[posB + 2] = vertPos + triangleVertOffset;
+
+
+
+			}
+			else if (action == 10)
+			{
+				float3 intersection = Intersect(b, c);
+
+				outputSplitVerts[vertPos] = intersection;
+				outputNewNormals[vertPos] = Normal(nb, nc);
+
+				//assign triangle belonging to left side
+				//a, b, intersection
+				//c, b, intersection
+
+				outputTrisA[posA] = ia;
+				outputTrisA[posA + 1] = ib;
+				outputTrisA[posA + 2] = vertPos + triangleVertOffset;
+
+				outputTrisB[posB] = ic;
+				outputTrisB[posB + 1] = ib;
+				outputTrisB[posB + 2] = vertPos + triangleVertOffset;
+
+			}
+			else if (action == 11)
+			{
+				float3 intersection = Intersect(b, c);
+				outputNewNormals[vertPos] = Normal(nb, nc);
+
+				outputSplitVerts[vertPos] = intersection;
+
+				//assign triangle belonging to left side
+				//c, b, intersection
+				//c, a, intersection
+
+				outputTrisA[posA] = ic;
+				outputTrisA[posA + 1] = ib;
+				outputTrisA[posA + 2] = vertPos + triangleVertOffset;
+
+				outputTrisB[posB] = ic;
+				outputTrisB[posB + 1] = ia;
+				outputTrisB[posB + 2] = vertPos + triangleVertOffset;
+			}
+			else if (action == 24)
+			{
+				float3 intersection = Intersect(b, c);
+				outputNewNormals[vertPos] = Normal(nb, nc);
+
+				outputSplitVerts[vertPos] = intersection;
+
+				//assign triangle belonging to left side
+				//b, a, intersection
+				//c, a, intersection
+
+				outputTrisA[posA] = ia;
+				outputTrisA[posA + 1] = ib;
+				outputTrisA[posA + 2] = vertPos + triangleVertOffset;
+
+				outputTrisB[posB] = ia;
+				outputTrisB[posB + 1] = ic;
+				outputTrisB[posB + 2] = vertPos + triangleVertOffset;
+
+
+
+			}
+			else if (action == 25)
+			{
+				float3 intersection = Intersect(b, c);
+				outputNewNormals[vertPos] = Normal(nb, nc);
+
+				outputSplitVerts[vertPos] = intersection;
+
+				//assign triangle belonging to left side
+				//c, b, intersection
+				//a, b, intersection
+
+				outputTrisA[posA] = ib;
+				outputTrisA[posA + 1] = ic;
+				outputTrisA[posA + 2] = vertPos + triangleVertOffset;
+
+				outputTrisB[posB] = ia;
+				outputTrisB[posB + 1] = ib;
+				outputTrisB[posB + 2] = vertPos + triangleVertOffset;
+
+			}
+			else if (action == 26)
+			{
+				float3 intersection = Intersect(b, c);
+				outputNewNormals[vertPos] = Normal(nb, nc);
+
+				outputSplitVerts[vertPos] = intersection;
+
+				//assign triangle belonging to left side
+				//c, a, intersection
+				//c, b, intersection
+
+				outputTrisA[posA] = ic;
+				outputTrisA[posA + 1] = ia;
+				outputTrisA[posA + 2] = vertPos + triangleVertOffset;
+
+				outputTrisB[posB] = ic;
+				outputTrisB[posB + 1] = ib;
+				outputTrisB[posB + 2] = vertPos + triangleVertOffset;
+			}
+			else if (action == 12)
+			{
+				//a,b on left, c on other
+				float3 intersectionA = Intersect(a, c);
+				float3 intersectionB = Intersect(b, c);
+
+				outputSplitVerts[vertPos] = intersectionA;
+				outputNewNormals[vertPos] = Normal(na, nc);
+				outputNewNormals[vertPos + 1] = Normal(nb, nc);
+
+				outputSplitVerts[vertPos + 1] = intersectionB;
+
+
+				//assign triangle belonging to left side
+				//a, intersectionB, intersectionA
+				//a, b, intersectionB
+				//c, intersectionA, intersectionB
+
+				outputTrisA[posA] = ia;
+				outputTrisA[posA + 1] = vertPos + 1 + triangleVertOffset;
+				outputTrisA[posA + 2] = vertPos + triangleVertOffset;
+
+				outputTrisA[posA + 3] = ia;
+				outputTrisA[posA + 4] = ib;
+				outputTrisA[posA + 5] = vertPos + 1 + triangleVertOffset;
+
+				outputTrisB[posB] = ic;
+				outputTrisB[posB + 1] = vertPos + triangleVertOffset;
+				outputTrisB[posB + 2] = vertPos + 1 + triangleVertOffset;
+			}
+			else if (action == 13)
+			{
+				//a,b on left, c on other
+				float3 intersectionA = Intersect(a, b);
+				float3 intersectionB = Intersect(c, b);
+
+				outputSplitVerts[vertPos] = intersectionA;
+				outputNewNormals[vertPos] = Normal(na, nc);
+				outputNewNormals[vertPos + 1] = Normal(nb, nc);
+				outputSplitVerts[vertPos + 1] = intersectionB;
+
+				//assign triangle belonging to left side
+				//a, intersectionB, intersectionA
+				//a, b, intersectionB
+				//b, intersectionA, intersectionB
+
+				outputTrisA[posA] = ia;
+				outputTrisA[posA + 1] = vertPos + 1 + triangleVertOffset;
+				outputTrisA[posA + 2] = vertPos + triangleVertOffset;
+
+				outputTrisA[posA + 3] = ia;
+				outputTrisA[posA + 4] = ic;
+				outputTrisA[posA + 5] = vertPos + 1 + triangleVertOffset;
+
+				outputTrisB[posB] = ib;
+				outputTrisB[posB + 1] = vertPos + triangleVertOffset;
+				outputTrisB[posB + 2] = vertPos + 1 + triangleVertOffset;
+			}
+
+			else if (action == 14)
+			{
+				//a,b on left, c on other
+				float3 intersectionA = Intersect(b, a);
+				float3 intersectionB = Intersect(c, a);
+				outputNewNormals[vertPos] = Normal(nb, nc);
+				outputNewNormals[vertPos + 1] = Normal(nc, na);
+				outputSplitVerts[vertPos] = intersectionA;
+
+				outputSplitVerts[vertPos + 1] = intersectionB;
+
+				//assign triangle belonging to left side
+
+				outputTrisA[posA] = ib;
+				outputTrisA[posA + 1] = vertPos + 1 + triangleVertOffset;
+				outputTrisA[posA + 2] = vertPos + triangleVertOffset;
+
+				outputTrisA[posA + 3] = ib;
+				outputTrisA[posA + 4] = ic;
+				outputTrisA[posA + 5] = vertPos + 1 + triangleVertOffset;
+
+				outputTrisB[posB] = ia;
+				outputTrisB[posB + 1] = vertPos + triangleVertOffset;
+				outputTrisB[posB + 2] = vertPos + 1 + triangleVertOffset;
+			}
+			else if (action == 15)
+			{
+				//a,b on left, c on other
+				float3 intersectionA = Intersect(a, c);
+				float3 intersectionB = Intersect(b, c);
+				outputNewNormals[vertPos] = Normal(na, nc);
+				outputNewNormals[vertPos + 1] = Normal(nb, nc);
+				outputSplitVerts[vertPos] = intersectionA;
+
+				outputSplitVerts[vertPos + 1] = intersectionB;
+
+				//assign triangle belonging to left side
+				//a, intersectionB, intersectionA
+				//a, b, intersectionB
+				//c, intersectionA, intersectionB
+
+				outputTrisB[posB] = ia;
+				outputTrisB[posB + 1] = vertPos + 1 + triangleVertOffset;
+				outputTrisB[posB + 2] = vertPos + triangleVertOffset;
+
+				outputTrisB[posB + 3] = ia;
+				outputTrisB[posB + 4] = ib;
+				outputTrisB[posB + 5] = vertPos + 1 + triangleVertOffset;
+
+				outputTrisA[posA] = ic;
+				outputTrisA[posA + 1] = vertPos + triangleVertOffset;
+				outputTrisA[posA + 2] = vertPos + 1 + triangleVertOffset;
+			}
+			else if (action == 16)
+			{
+				//a,b on left, c on other
+				float3 intersectionA = Intersect(a, b);
+				float3 intersectionB = Intersect(c, b);
+				outputNewNormals[vertPos] = Normal(na, nb);
+				outputNewNormals[vertPos + 1] = Normal(nc, nb);
+				outputSplitVerts[vertPos] = intersectionA;
+
+				outputSplitVerts[vertPos + 1] = intersectionB;
+
+				//assign triangle belonging to left side
+				//a, intersectionB, intersectionA
+				//a, b, intersectionB
+				//b, intersectionA, intersectionB
+
+				outputTrisB[posB] = ia;
+				outputTrisB[posB + 1] = vertPos + 1 + triangleVertOffset;
+				outputTrisB[posB + 2] = vertPos + triangleVertOffset;
+
+				outputTrisB[posB + 3] = ia;
+				outputTrisB[posB + 4] = ic;
+				outputTrisB[posB + 5] = vertPos + 1 + triangleVertOffset;
+
+				outputTrisA[posA] = ib;
+				outputTrisA[posA + 1] = vertPos + triangleVertOffset;
+				outputTrisA[posA + 2] = vertPos + 1 + triangleVertOffset;
+			}
+
+			else if (action == 17)
+			{
+				//a,b on left, c on other
+				float3 intersectionA = Intersect(b, a);
+				float3 intersectionB = Intersect(c, a);
+				outputNewNormals[vertPos] = Normal(nb, na);
+				outputNewNormals[vertPos + 1] = Normal(nc, na);
+				outputSplitVerts[vertPos] = intersectionA;
+
+				outputSplitVerts[vertPos + 1] = intersectionB;
+
+				//assign triangle belonging to left side
+
+				outputTrisB[posB] = ib;
+				outputTrisB[posB + 1] = vertPos + 1 + triangleVertOffset;
+				outputTrisB[posB + 2] = vertPos + triangleVertOffset;
+
+				outputTrisB[posB + 3] = ib;
+				outputTrisB[posB + 4] = ic;
+				outputTrisB[posB + 5] = vertPos + 1 + triangleVertOffset;
+
+				outputTrisA[posA] = ia;
+				outputTrisA[posA + 1] = vertPos + triangleVertOffset;
+				outputTrisA[posA + 2] = vertPos + 1 + triangleVertOffset;
+			}
+		}
+
+	}
+}
