@@ -74,8 +74,8 @@ float3 Intersect(float3 a, float3 b) {
 }
 float3 Normal(float3 a, float3 b)
 {
-	//return float3(0, 0, -1);
-	return normalize(cross(a, b));
+	//return b;
+	return normalize( cross(a, b));
 }
 int triSide(float3 a, float3 b, float3 c)
 {
@@ -180,7 +180,7 @@ int triSide(float3 a, float3 b, float3 c)
 
 		return 17;
 	}
-	// detect if one tri is on the plane, others are on the same side, right
+	// detect if one vertice is on the plane, others are on the same side, right
 	else if (sa == 2 && sc == sb && sc == 1)
 	{
 
@@ -462,8 +462,8 @@ void CScreateExtraVertecies(uint id : SV_GroupIndex)
 				outputTrisA[posA + 5] = vertPos + 1 + triangleVertOffset;
 
 				outputTrisB[posB] = ic;
-				outputTrisB[posB + 1] = vertPos + triangleVertOffset;
-				outputTrisB[posB + 2] = vertPos + 1 + triangleVertOffset;
+				outputTrisB[posB + 2] = vertPos + triangleVertOffset;
+				outputTrisB[posB + 1] = vertPos + 1 + triangleVertOffset;
 			}
 			else if (action == 13)
 			{
@@ -482,15 +482,15 @@ void CScreateExtraVertecies(uint id : SV_GroupIndex)
 				//b, intersectionA, intersectionB
 
 				outputTrisA[posA] = ia;
-				outputTrisA[posA + 1] = vertPos + 1 + triangleVertOffset;
-				outputTrisA[posA + 2] = vertPos + triangleVertOffset;
+				outputTrisA[posA +2] = vertPos + 1 + triangleVertOffset;
+				outputTrisA[posA + 1] = vertPos + triangleVertOffset;
 
 				outputTrisA[posA + 3] = ia;
-				outputTrisA[posA + 4] = ic;
-				outputTrisA[posA + 5] = vertPos + 1 + triangleVertOffset;
+				outputTrisA[posA + 5] = ic;
+				outputTrisA[posA + 4] = vertPos + 1 + triangleVertOffset;
 
-				outputTrisB[posB] = ib;
-				outputTrisB[posB + 1] = vertPos + triangleVertOffset;
+				outputTrisB[posB+1] = ib;
+				outputTrisB[posB + 0] = vertPos + triangleVertOffset;
 				outputTrisB[posB + 2] = vertPos + 1 + triangleVertOffset;
 			}
 
@@ -507,13 +507,13 @@ void CScreateExtraVertecies(uint id : SV_GroupIndex)
 
 				//assign triangle belonging to left side
 
-				outputTrisA[posA] = ib;
-				outputTrisA[posA + 1] = vertPos + 1 + triangleVertOffset;
-				outputTrisA[posA + 2] = vertPos + triangleVertOffset;
-
-				outputTrisA[posA + 3] = ib;
-				outputTrisA[posA + 4] = ic;
-				outputTrisA[posA + 5] = vertPos + 1 + triangleVertOffset;
+				outputTrisA[posA+1] = ib;
+				outputTrisA[posA + 2] = vertPos + 1 + triangleVertOffset;
+				outputTrisA[posA + 0] = vertPos + triangleVertOffset;
+				
+				outputTrisA[posA + 4] = ib;
+				outputTrisA[posA + 5] = ic;
+				outputTrisA[posA + 3] = vertPos + 1 + triangleVertOffset;
 
 				outputTrisB[posB] = ia;
 				outputTrisB[posB + 1] = vertPos + triangleVertOffset;
@@ -543,9 +543,9 @@ void CScreateExtraVertecies(uint id : SV_GroupIndex)
 				outputTrisB[posB + 4] = ib;
 				outputTrisB[posB + 5] = vertPos + 1 + triangleVertOffset;
 
-				outputTrisA[posA] = ic;
+				outputTrisA[posA + 2] = ic;
 				outputTrisA[posA + 1] = vertPos + triangleVertOffset;
-				outputTrisA[posA + 2] = vertPos + 1 + triangleVertOffset;
+				outputTrisA[posA + 0] = vertPos + 1 + triangleVertOffset;
 			}
 			else if (action == 16)
 			{
@@ -564,15 +564,15 @@ void CScreateExtraVertecies(uint id : SV_GroupIndex)
 				//b, intersectionA, intersectionB
 
 				outputTrisB[posB] = ia;
-				outputTrisB[posB + 1] = vertPos + 1 + triangleVertOffset;
-				outputTrisB[posB + 2] = vertPos + triangleVertOffset;
+				outputTrisB[posB + 2] = vertPos + 1 + triangleVertOffset;
+				outputTrisB[posB + 1] = vertPos + triangleVertOffset;
 
 				outputTrisB[posB + 3] = ia;
-				outputTrisB[posB + 4] = ic;
-				outputTrisB[posB + 5] = vertPos + 1 + triangleVertOffset;
+				outputTrisB[posB + 5] = ic;
+				outputTrisB[posB + 4] = vertPos + 1 + triangleVertOffset;
 
-				outputTrisA[posA] = ib;
-				outputTrisA[posA + 1] = vertPos + triangleVertOffset;
+				outputTrisA[posA+1] = ib;
+				outputTrisA[posA + 0] = vertPos + triangleVertOffset;
 				outputTrisA[posA + 2] = vertPos + 1 + triangleVertOffset;
 			}
 
@@ -589,13 +589,13 @@ void CScreateExtraVertecies(uint id : SV_GroupIndex)
 
 				//assign triangle belonging to left side
 
-				outputTrisB[posB] = ib;
-				outputTrisB[posB + 1] = vertPos + 1 + triangleVertOffset;
-				outputTrisB[posB + 2] = vertPos + triangleVertOffset;
+				outputTrisB[posB+1] = ib;
+				outputTrisB[posB + 2] = vertPos + 1 + triangleVertOffset;
+				outputTrisB[posB + 0] = vertPos + triangleVertOffset;
 
-				outputTrisB[posB + 3] = ib;
-				outputTrisB[posB + 4] = ic;
-				outputTrisB[posB + 5] = vertPos + 1 + triangleVertOffset;
+				outputTrisB[posB + 5] = ib;
+				outputTrisB[posB + 3] = ic;
+				outputTrisB[posB + 4] = vertPos + 1 + triangleVertOffset;
 
 				outputTrisA[posA] = ia;
 				outputTrisA[posA + 1] = vertPos + triangleVertOffset;

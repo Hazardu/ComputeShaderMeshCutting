@@ -1,6 +1,8 @@
 ﻿
-﻿using System.Collections.Generic;
+using System.Collections;
+using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using UnityEngine;
 using UnityEngine.Jobs;
 
@@ -13,82 +15,124 @@ public class CuttingDispatcher : MonoBehaviour
     private const string createVertHandle = "CScreateExtraVertecies";
     private const float threads = 1024;
 
+    public delegate void FinishSplitting(List<Vector3> vertices, List<Vector3> normals, int[] triangles,Vector3 pos,Quaternion rot,Vector3 normal);
+    public FinishSplitting finishSplitting;
 
 
     public MeshFilter instantiatedMesh;
 
-    public GameObject toCut;
-    public GameObject plane;
-
-    public float dist;
-    public Vector3 normal;
-    public Transform referencePlane;
-    private Dictionary<int, int> translateVertex_A = new Dictionary<int, int>();
-    private Dictionary<int, int> translateVertex_B = new Dictionary<int, int>();
-    private List<Vector3> mesh_A_vertices = new List<Vector3>();
-    private List<Vector3> mesh_B_vertices = new List<Vector3>();
-    private List<Vector3> mesh_A_normals = new List<Vector3>();
-    private List<Vector3> mesh_B_normals = new List<Vector3>();
-    private List<int> trisA = new List<int>();
-    private List<int> trisB = new List<int>();
-    private List<int> edgesA = new List<int>();
-    private List<int> edgesB = new List<int>();
-    private List<int> splitData = new List<int>();
+    public MeshFilter toCut;
+    public Transform cutPlane;
 
 
-
+    //private float dist;
+    //private Vector3 normal;
+    
+    private void Awake()
+    {
+        finishSplitting += FinishSplittingAction;
+    }
     private void Start()
     {
-        Calculate(toCut.transform, plane.transform);
+        //Calculate(toCut.transform, toCut.mesh, cutPlane);
     }
+
 
     //getting the plane normal and distance
-    private void CalculatePlane(Vector3 pos, Vector3 norm)
+    private static void CalculatePlane(Vector3 pos, Vector3 norm, out Vector3 normal,out float dist)
     {
-        this.normal = norm;
-        this.dist = Vector3.Dot(norm, pos);
+       normal = norm;
+       dist = Vector3.Dot(norm.normalized, pos.normalized);
     }
-    private void CalculatePlane(Transform tr)
+    private static void CalculatePlane(Transform tr, out Vector3 normal, out float dist)
     {
-        CalculatePlane(tr.position, tr.up);
+        CalculatePlane(tr.position, tr.up, out  normal, out  dist);
     }
-    private void CalculatePlane()
+    private static void CalculatePlane(Transform tr, Transform tr2, out Vector3 normal, out float dist)
     {
-        CalculatePlane(referencePlane);
-    }
-    private void CalculatePlane(Transform tr, Transform tr2)
-    {
-        CalculatePlane(tr2.position - tr.position, tr.up);
+        CalculatePlane(tr.position-tr2.position ,tr.up, out normal, out dist);
     }
 
 
-    public void Calculate(Transform transform, Transform cutSurface)
+    //public void Calculate(Transform transform, Transform cutSurface)
+    //{
+
+    //    var meshF = transform.GetComponent<MeshFilter>();
+    //    if (meshF != null)
+    //    {
+    //        CalculatePlane(cutSurface, transform, out Vector3 normal, out float dist);
+
+    //        //StartCoroutine( CutMesh(meshF.mesh, transform));
+    //    }
+    //}
+    public void Calculate(Transform transform, Mesh mesh, Transform cutSurface)
     {
-
-        var meshF = transform.GetComponent<MeshFilter>();
-        if (meshF != null)
-        {
-            CalculatePlane(cutSurface, transform);
-
-            CutMesh(meshF.mesh, transform);
-        }
+        CalculatePlane(cutSurface, transform, out Vector3 normal, out float dist);
+        Debug.Log(normal);
+        Debug.Log(dist);
+        if( RunOnOtherThread(mesh, normal, dist, transform.position, transform.rotation))
+        Destroy(transform.gameObject);
     }
 
-    private void CutMesh(Mesh mesh, Transform cutTr)
+    public bool CalculateConcurrent(object o)
+    {
+        object[] objs = (object[])o;
+        return CutMesh((ComputeShader)objs[0], (Vector3[])objs[1], (Vector3[])objs[2], (int[])objs[3], (Vector3)objs[4], (float)objs[5], (Vector3)objs[6], (Quaternion)objs[7], (FinishSplitting)objs[8]);
+    }
+
+    bool RunOnOtherThread(Mesh mesh,Vector3 normal,float dist, Vector3 pos, Quaternion rotation)
+    {
+        //Thread thread = new Thread(CalculateConcurrent);
+        //thread.Start(new object[]
+        //{
+        //    shader,
+        //    mesh.vertices,
+        //    mesh.normals,
+        //    mesh.triangles,
+        //    normal,
+        //    dist,
+        //    pos,
+        //    rotation,
+        //    finishSplitting
+        //});
+        return CutMesh(
+                shader,
+            mesh.vertices,
+            mesh.normals,
+            mesh.triangles,
+            normal,
+            dist,
+            pos,
+            rotation,
+            finishSplitting);
+
+    }
+
+
+
+    private static bool CutMesh(ComputeShader shader,Vector3[] vertices, Vector3[] normals, int[] triangles, Vector3 normal, float dist, Vector3 pos, Quaternion rotation, FinishSplitting finishSplitting)
     {
         //TODO
         //plane needs to be calc. beforehand
         // (?) dispatch the code individually for everty submesh for the mesh
         // dispatch the code on a separate thread
 
-        System.Diagnostics.Stopwatch watch = System.Diagnostics.Stopwatch.StartNew();
+        //System.Diagnostics.Stopwatch watch = System.Diagnostics.Stopwatch.StartNew();
+
+     List<Vector3> mesh_A_vertices = new List<Vector3>();
+     List<Vector3> mesh_B_vertices = new List<Vector3>();
+     List<Vector3> mesh_A_normals = new List<Vector3>();
+     List<Vector3> mesh_B_normals = new List<Vector3>();
+     List<int> trisA = new List<int>();
+     List<int> trisB = new List<int>();
+     List<int> edgesA = new List<int>();
+     List<int> edgesB = new List<int>();
+     List<int> splitData = new List<int>();
 
 
 
-        //get data from original mesh
-        Vector3[] vertices = mesh.vertices;
-        Vector3[] normals = mesh.normals;
-        int[] triangles = mesh.triangles;
+    //get data from original mesh
+
 
         //data for shader - loop sizes
         int loopSize1 = Mathf.CeilToInt(triangles.Length / 3 / threads);
@@ -171,6 +215,9 @@ public class CuttingDispatcher : MonoBehaviour
 
         int vertexOffset = 0;
 
+        int[] vertexDictionaryA = new int[vertices.Length];
+        int[] vertexDictionaryB = new int[vertices.Length];
+
         //sorting vertices
         //iterating through array
         //size of sortedVertices = verts
@@ -180,28 +227,27 @@ public class CuttingDispatcher : MonoBehaviour
             {
                 case 0:
                     //vertex belongs to mesh A
-                    translateVertex_A.Add(i, mesh_A_vertices.Count);    //old i becomes new vert
+                    vertexDictionaryA[i]= verticesLength_A;    //old i becomes new vert
                     mesh_A_vertices.Add(vertices[i]);
                     mesh_A_normals.Add(normals[i]);
                     verticesLength_A++;
-                    if (vertices[i].y < 0) Debug.Log("Adding incorrect A");
                     break;
                 case 1:
                     //vertex belongs to mesh B
-                    translateVertex_B.Add(i, mesh_B_vertices.Count);
+                    vertexDictionaryB[i]= verticesLength_B;
                     mesh_B_vertices.Add(vertices[i]);
                     mesh_B_normals.Add(normals[i]);
+                    //Debug.Log("verticesLength_B: " + verticesLength_B + "\n i = " + i + "\n vertices[i] = " + vertices[i]);
                     verticesLength_B++;
-                    if (vertices[i].y > 0) Debug.Log("Adding incorrect B");
                     break;
                 case 2:
                     //vertex belongs to both meshes
-                    translateVertex_A.Add(i, mesh_A_vertices.Count);
-                    translateVertex_B.Add(i, mesh_B_vertices.Count);
+                    vertexDictionaryA[i] = verticesLength_A;    //old i becomes new vert
+                    vertexDictionaryB[i] = verticesLength_B;
                     mesh_A_vertices.Add(vertices[i]);
                     mesh_B_vertices.Add(vertices[i]);
                     edgesA.Add(cutSectionVert_Length_A);
-                    edgesA.Add(cutSectionVert_Length_B);
+                    edgesB.Add(cutSectionVert_Length_B);
                     mesh_B_normals.Add(normals[i]);
                     mesh_A_normals.Add(normals[i]);
 
@@ -213,7 +259,6 @@ public class CuttingDispatcher : MonoBehaviour
                     break;
             }
         }
-        Debug.Log("mesh_A_vertices= " + mesh_A_vertices.Count);
         //sorting faces
         for (int i = 0; i < sortedTriangles.Length; i++)
         {
@@ -231,25 +276,25 @@ public class CuttingDispatcher : MonoBehaviour
                 case 7:
                 case 8:
                 case 0:
-                    trisA.Add(translateVertex_A[a]);
-                    trisA.Add(translateVertex_A[b]);
-                    trisA.Add(translateVertex_A[c]);
+                    trisA.Add(vertexDictionaryA[a]);
+                    trisA.Add(vertexDictionaryA[b]);
+                    trisA.Add(vertexDictionaryA[c]);
                     triangles_length_A++;
 
                     break;
                 case 1:
-                    trisB.Add(translateVertex_B[a]);
-                    trisB.Add(translateVertex_B[b]);
-                    trisB.Add(translateVertex_B[c]);
+                    trisB.Add(vertexDictionaryB[a]);
+                    trisB.Add(vertexDictionaryB[b]);
+                    trisB.Add(vertexDictionaryB[c]);
                     triangles_length_B++;
                     break;                case 2:
-                    trisA.Add(translateVertex_A[a]);
-                    trisA.Add(translateVertex_A[b]);
-                    trisA.Add(translateVertex_A[c]);
+                    trisA.Add(vertexDictionaryA[a]);
+                    trisA.Add(vertexDictionaryA[b]);
+                    trisA.Add(vertexDictionaryA[c]);
 
-                    trisB.Add(translateVertex_B[a]);
-                    trisB.Add(translateVertex_B[b]);
-                    trisB.Add(translateVertex_B[c]);
+                    trisB.Add(vertexDictionaryB[a]);
+                    trisB.Add(vertexDictionaryB[b]);
+                    trisB.Add(vertexDictionaryB[c]);
 
                     triangles_length_B++;
                     triangles_length_A++;
@@ -261,7 +306,7 @@ public class CuttingDispatcher : MonoBehaviour
                 case 24:
                 case 25:
                 case 26:
-                    splitData.AddRange(new int[] { a, sortedTriangles[i], A * 3, A * 3, vertexOffset });
+                    splitData.AddRange(new int[] { i*3, sortedTriangles[i], A * 3, A * 3, vertexOffset });
                     additionalTriangles_A++;
                     additionalTriangles_B++;
                     triangles_length_A++;
@@ -274,7 +319,7 @@ public class CuttingDispatcher : MonoBehaviour
                 case 12:
                 case 13:
                 case 14:
-                    splitData.AddRange(new int[] { a, sortedTriangles[i], A * 3, B * 3, vertexOffset });
+                    splitData.AddRange(new int[] { i * 3, sortedTriangles[i], A * 3, B * 3, vertexOffset });
                     additionalTriangles_A += 2;
                     additionalTriangles_B++;
                     triangles_length_A += 2;
@@ -282,20 +327,19 @@ public class CuttingDispatcher : MonoBehaviour
                     vertexOffset += 2;
                     A += 2;
                     B++;
-                    Debug.Log("Splitting " + vertices[a] + " " + vertices[b] + ' ' + vertices[c]);
                     break;
 
                 case 15:
                 case 16:
                 case 17:
-                    splitData.AddRange(new int[] { a, sortedTriangles[i], A * 3, B * 3, vertexOffset });
+                    splitData.AddRange(new int[] { i * 3, sortedTriangles[i], A * 3, B * 3, vertexOffset });
                     additionalTriangles_A++;
                     additionalTriangles_B += 2;
                     triangles_length_A += 1;
                     triangles_length_B += 2;
                     vertexOffset += 2;
                     A++;
-                    B += 2;       ///this was the issue, it was B++
+                    B += 2;
                     break;
 
                 case 18:
@@ -304,9 +348,9 @@ public class CuttingDispatcher : MonoBehaviour
                 case 21:
                 case 22:
                 case 23:
-                    trisB.Add(translateVertex_B[a]);
-                    trisB.Add(translateVertex_B[b]);
-                    trisB.Add(translateVertex_B[c]);
+                    trisB.Add(vertexDictionaryB[a]);
+                    trisB.Add(vertexDictionaryB[b]);
+                    trisB.Add(vertexDictionaryB[c]);
                     triangles_length_B += 1;
                     break;
             }
@@ -316,8 +360,9 @@ public class CuttingDispatcher : MonoBehaviour
         //splitting edges------------------------------------------------------------
 
         int size = splitData.Count / 5;
-
+        if (size == 0) return false;  
         ///buffers
+        
         ComputeBuffer buffer_splitData = new ComputeBuffer(size, sizeof(uint) * 5);
         ComputeBuffer buffer_outputTri_A = new ComputeBuffer(additionalTriangles_A * 3, sizeof(uint));
         ComputeBuffer buffer_outputTri_B = new ComputeBuffer(additionalTriangles_B * 3, sizeof(uint));
@@ -421,19 +466,13 @@ public class CuttingDispatcher : MonoBehaviour
             var VertID = ExtraATris[i];
             if (VertID < TriSize)
             {
-                if (translateVertex_A.ContainsKey(VertID))
-                {
-                    trisA.Add(translateVertex_A[VertID]);
-                }
-                else
-                {
-                    trisA.Add(translateVertex_B[VertID]);
-                }
+                    trisA.Add(vertexDictionaryA[VertID]);
             }
             else
             {
-                int newID = VertID - TriSize;
-                trisA.Add(newID + triAC);
+                int newID = VertID - TriSize + triAC;
+                trisA.Add(newID);
+                edgesA.Add(newID);
             }
         }
 
@@ -445,25 +484,24 @@ public class CuttingDispatcher : MonoBehaviour
             var VertID = ExtraBTris[i];
             if (VertID < TriSize)
             {
-                Debug.Log("vertID" + VertID + "\nIsInA " + translateVertex_A.ContainsKey(VertID) + "\nIsInB " + translateVertex_B.ContainsKey(VertID));
-
-                if (translateVertex_A.ContainsKey(VertID))
-                {
-                    trisB.Add(translateVertex_A[VertID]);
-                }
-                else
-                {
-                    trisB.Add(translateVertex_B[VertID]);
-                }
+                    trisB.Add(vertexDictionaryB[VertID]);
             }
             else
             {
+                int newID = VertID - TriSize+ triBC;
+                trisB.Add(newID);
+                edgesB.Add(newID);
 
-                int newID = VertID - TriSize;
-                trisB.Add(newID + triBC);
             }
         }
-
+        Vector3 point = Final_vertB[edgesB[0]];
+       
+        //for (int i = 1; i < edgesA.Count - 1; i++)
+        //{
+        //    trisA.Add(edgesA[0]);
+        //    trisA.Add(edgesA[i+1]);
+        //    trisA.Add(edgesA[i]);
+        //}
         int[] Final_trisB = trisB.ToArray();
 
         //Normals
@@ -479,30 +517,17 @@ public class CuttingDispatcher : MonoBehaviour
 
 
 
+        finishSplitting(Final_vertA, Final_NormalA, Final_trisA,pos,rotation,normal);
+        finishSplitting(Final_vertB, Final_NormalB, Final_trisB,pos,rotation,normal);
+     
 
-        Mesh mesh1 = new Mesh();
-        Mesh mesh2 = new Mesh();
-        mesh1.SetVertices(Final_vertA);
-        mesh2.SetVertices(Final_vertA);
-        mesh1.SetTriangles(Final_trisA, 0);
-        mesh2.SetTriangles(Final_trisB, 0);
-        mesh1.SetNormals(Final_NormalA);
-        mesh2.SetNormals(Final_NormalB);
-
-
-        var InstantiatedA = Object.Instantiate(instantiatedMesh, cutTr.position + Vector3.up * 1, cutTr.rotation);
-        var InstantiatedB = Object.Instantiate(instantiatedMesh, cutTr.position + Vector3.down * 1, cutTr.rotation);
-        InstantiatedA.mesh = mesh1;
-        InstantiatedB.mesh = mesh2;
-        InstantiatedB.transform.localScale *= -1;
-
-        watch.Stop();
-        long elapsedMs = watch.ElapsedMilliseconds;
-        Debug.Log("Cutting took " + elapsedMs + "ms");
+        //watch.Stop();
+        //long elapsedMs = watch.ElapsedMilliseconds;
+        //Debug.Log("Cutting took " + elapsedMs + "ms");
 
 
         //cleanup ----------------------------
-
+        
         output_triangleSorterBuffer.Dispose();
         input_OriginalVerticesBuffer.Dispose();
         input_OriginalTrianglesBuffer.Dispose();
@@ -511,8 +536,6 @@ public class CuttingDispatcher : MonoBehaviour
         buffer_outputTri_A.Dispose();
         buffer_outputTri_B.Dispose();
         buffer_outputCreatedVertices.Dispose();
-        translateVertex_A.Clear();
-        translateVertex_B.Clear();
         mesh_A_vertices.Clear();
         mesh_B_vertices.Clear();
         mesh_A_normals.Clear();
@@ -523,7 +546,28 @@ public class CuttingDispatcher : MonoBehaviour
         edgesB.Clear();
         splitData.Clear();
 
+
+        return true;
     }
+    public void FinishSplittingAction(List<Vector3> vertices, List<Vector3> normals, int[] triangles,Vector3 pos,Quaternion rot,Vector3 normal)
+    {
+    Mesh mesh = new Mesh();
+    mesh.SetVertices(vertices);
+    mesh.SetNormals(normals);
+    mesh.SetTriangles(triangles,0);
+
+
+        var InstantiatedA = Object.Instantiate(instantiatedMesh, pos, rot);
+    InstantiatedA.mesh = mesh;
+
+        var rb = InstantiatedA.GetComponent<Rigidbody>();
+
+
+
+        rb.AddForce(normal);
+
+    }
+
 
 }
 
