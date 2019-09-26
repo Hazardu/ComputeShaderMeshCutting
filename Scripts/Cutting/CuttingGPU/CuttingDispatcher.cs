@@ -19,7 +19,7 @@ public class CuttingDispatcher : MonoBehaviour
     public FinishSplitting finishSplitting;
 
 
-    public MeshFilter instantiatedMesh;
+    public CutCorpse prefab;
 
     public MeshFilter toCut;
     public Transform cutPlane;
@@ -50,10 +50,19 @@ public class CuttingDispatcher : MonoBehaviour
     }
     private static void CalculatePlane(Transform tr, Transform tr2, out Vector3 normal, out float dist)
     {
-        CalculatePlane(tr.position-tr2.position ,tr.up, out normal, out dist);
+
+        //Debug.Log("tr 1 = " + tr.up + "\ttr 2 = " + tr2.up+"\toutput = "+ norm);
+        CalculatePlane(tr.position-tr2.position , tr.rotation * tr2.up, out normal, out dist);
     }
 
-
+    //public Transform inputA;
+    //public Transform inputB;
+    //public float faaaaa;
+    //private void Update()
+    //{
+    //    var v = inputB.rotation * inputA.up;
+    //    Debug.Log(inputA.up + " + " + inputB.up + " = " + v);
+    //}
     //public void Calculate(Transform transform, Transform cutSurface)
     //{
 
@@ -68,19 +77,17 @@ public class CuttingDispatcher : MonoBehaviour
     public void Calculate(Transform transform, Mesh mesh, Transform cutSurface)
     {
         CalculatePlane(cutSurface, transform, out Vector3 normal, out float dist);
-        Debug.Log(normal);
-        Debug.Log(dist);
-        if( RunOnOtherThread(mesh, normal, dist, transform.position, transform.rotation))
+        if( RunOnOtherThread(mesh, normal, dist, transform.position, transform.rotation,-cutSurface.forward))
         Destroy(transform.gameObject);
     }
 
-    public bool CalculateConcurrent(object o)
-    {
-        object[] objs = (object[])o;
-        return CutMesh((ComputeShader)objs[0], (Vector3[])objs[1], (Vector3[])objs[2], (int[])objs[3], (Vector3)objs[4], (float)objs[5], (Vector3)objs[6], (Quaternion)objs[7], (FinishSplitting)objs[8]);
-    }
+    //public bool CalculateConcurrent(object o)
+    //{
+    //    object[] objs = (object[])o;
+    //    return CutMesh((ComputeShader)objs[0], (Vector3[])objs[1], (Vector3[])objs[2], (int[])objs[3], (Vector3)objs[4], (float)objs[5], (Vector3)objs[6], (Quaternion)objs[7], (FinishSplitting)objs[8]);
+    //}
 
-    bool RunOnOtherThread(Mesh mesh,Vector3 normal,float dist, Vector3 pos, Quaternion rotation)
+    bool RunOnOtherThread(Mesh mesh,Vector3 normal,float dist, Vector3 pos, Quaternion rotation,Vector3 forward)
     {
         //Thread thread = new Thread(CalculateConcurrent);
         //thread.Start(new object[]
@@ -104,13 +111,14 @@ public class CuttingDispatcher : MonoBehaviour
             dist,
             pos,
             rotation,
-            finishSplitting);
+            finishSplitting,
+            forward);
 
     }
 
 
 
-    private static bool CutMesh(ComputeShader shader,Vector3[] vertices, Vector3[] normals, int[] triangles, Vector3 normal, float dist, Vector3 pos, Quaternion rotation, FinishSplitting finishSplitting)
+    private static bool CutMesh(ComputeShader shader,Vector3[] vertices, Vector3[] normals, int[] triangles, Vector3 normal, float dist, Vector3 pos, Quaternion rotation, FinishSplitting finishSplitting,Vector3 forward)
     {
         //TODO
         //plane needs to be calc. beforehand
@@ -476,6 +484,12 @@ public class CuttingDispatcher : MonoBehaviour
             }
         }
 
+        for (int i = 1; i < edgesA.Count - 1; i++)
+        {
+            trisA.Add(edgesA[0]);
+            trisA.Add(edgesA[i + 1]);
+            trisA.Add(edgesA[i]);
+        }
         int[] Final_trisA = trisA.ToArray();
 
         ///B
@@ -495,13 +509,13 @@ public class CuttingDispatcher : MonoBehaviour
             }
         }
         Vector3 point = Final_vertB[edgesB[0]];
-       
-        //for (int i = 1; i < edgesA.Count - 1; i++)
-        //{
-        //    trisA.Add(edgesA[0]);
-        //    trisA.Add(edgesA[i+1]);
-        //    trisA.Add(edgesA[i]);
-        //}
+
+        for (int i = 1; i < edgesB.Count - 1; i++)
+        {
+            trisB.Add(edgesB[0]);
+            trisB.Add(edgesB[i + 1]);
+            trisB.Add(edgesB[i]);
+        }
         int[] Final_trisB = trisB.ToArray();
 
         //Normals
@@ -516,10 +530,16 @@ public class CuttingDispatcher : MonoBehaviour
         Final_NormalB.AddRange(ExtraNormals);
 
 
-
-        finishSplitting(Final_vertA, Final_NormalA, Final_trisA,pos,rotation,normal);
-        finishSplitting(Final_vertB, Final_NormalB, Final_trisB,pos,rotation,normal);
-     
+        if (normal.y > 0)
+        {
+            finishSplitting(Final_vertA, Final_NormalA, Final_trisA, pos, rotation, forward);
+            finishSplitting(Final_vertB, Final_NormalB, Final_trisB, pos, rotation, Vector3.zero);
+        }
+        else
+        {
+            finishSplitting(Final_vertA, Final_NormalA, Final_trisA, pos, rotation, Vector3.zero);
+            finishSplitting(Final_vertB, Final_NormalB, Final_trisB, pos, rotation, -forward);
+        }
 
         //watch.Stop();
         //long elapsedMs = watch.ElapsedMilliseconds;
@@ -527,7 +547,7 @@ public class CuttingDispatcher : MonoBehaviour
 
 
         //cleanup ----------------------------
-        
+
         output_triangleSorterBuffer.Dispose();
         input_OriginalVerticesBuffer.Dispose();
         input_OriginalTrianglesBuffer.Dispose();
@@ -549,22 +569,18 @@ public class CuttingDispatcher : MonoBehaviour
 
         return true;
     }
-    public void FinishSplittingAction(List<Vector3> vertices, List<Vector3> normals, int[] triangles,Vector3 pos,Quaternion rot,Vector3 normal)
+    public void FinishSplittingAction(List<Vector3> vertices, List<Vector3> normals, int[] triangles,Vector3 pos,Quaternion rot,Vector3 force)
     {
     Mesh mesh = new Mesh();
     mesh.SetVertices(vertices);
     mesh.SetNormals(normals);
     mesh.SetTriangles(triangles,0);
+        mesh.Optimize();
 
-
-        var InstantiatedA = Object.Instantiate(instantiatedMesh, pos, rot);
-    InstantiatedA.mesh = mesh;
-
-        var rb = InstantiatedA.GetComponent<Rigidbody>();
-
-
-
-        rb.AddForce(normal);
+        var InstantiatedA = Object.Instantiate(prefab, pos, rot);
+    InstantiatedA.filter.mesh = mesh;
+        if (force != Vector3.zero) 
+        InstantiatedA.SetVelocity(force,10);
 
     }
 
